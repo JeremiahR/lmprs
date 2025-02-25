@@ -1,12 +1,10 @@
 # Goals
 
-The goal is to create a lightweight node on the Lightning network. How it is "lightweight" is still open for interpretation.
+A lightweight, terminal-driven node on the Lightning network.
 
-For example it could be lightweight:
-
-- it could run in very low resource environments to simulate thousands of nodes, or to run on small hardware
-- it could have limited blockchain access, e.g. it could have high network connectivity but low storage
-- lightweight could mean no funds, e.g. it could be purely a relay like watchtowers
+- Based on minimal LDK
+- Looking at using PeerChannelEncryptor directly.
+- LDK is a lot to insantiate to just get moving.
 
 Some potential use cases:
 

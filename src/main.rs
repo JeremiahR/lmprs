@@ -1,68 +1,72 @@
-use lightning::ln::peer_handler::IgnoringMessageHandler;
-use lightning::ln::peer_handler::PeerManager;
-use lightning::util::logger::Logger;
-use lightning::util::logger::Record;
-use secp256k1::rand;
+use cli::parse_cli_args;
+use lightning::bitcoin::secp256k1::PublicKey;
+use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleRefPeerManager};
+use lightning::sign::KeysManager;
+use logger::MyLogger;
+use messages::MsgHandler;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::PublicKey;
 use secp256k1::Secp256k1;
-use std::env;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 
+mod cli;
+mod logger;
 mod messages;
 mod socket;
 
-struct MyLogger;
-impl Logger for MyLogger {
-    fn log(&self, record: Record) {
-        println!("{}", record.args);
-    }
-}
-
-fn parse_cli_args() -> (PublicKey, String) {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <pubkey@ip:port>", args[0]);
-        std::process::exit(1);
-    }
-    let input = &args[1];
-    let (target_pubkey_str, addr) = input.split_once('@').expect("Invalid input format");
-    let target_pubkey = PublicKey::from_str(target_pubkey_str).expect("Invalid public key");
-    (target_pubkey, addr.to_string())
-}
-
 #[tokio::main]
 async fn main() {
-    let logger = Arc::new(MyLogger);
-    let secp = Secp256k1::new();
-    let (_my_secret_key, _my_public_key) = secp.generate_keypair(&mut OsRng);
     let (_target_pubkey, addr) = parse_cli_args();
 
-    let current_time = std::time::Instant::now();
-    // let ephemeral_random_state = secp.generate_keypair(&mut OsRng);
+    let logger = MyLogger::new();
+    let secp = Secp256k1::new();
+    let (my_secret_key, my_public_key) = secp.generate_keypair(&mut OsRng);
+    let current_timestamp = 0;
+    let initial_random_data = [0u8; 32];
+    let private_seed = [1u8; 32];
 
-    let ignoring_handler = IgnoringMessageHandler {};
-    let message_handler = MessageHandler::new(ignoring_handler);
+    let pubkey = PublicKey::from_str(&my_public_key.to_string()).unwrap();
+    let pubkey_connected = mpsc::channel(0).0;
+    let pubkey_disconnected = mpsc::channel(0).0;
+    let disconnected_flag = AtomicBool::new(false);
+    let msg_events = Mutex::new(Vec::new());
 
-    // https://lightningdevkit.org/introduction/peer-management/
-    // https://docs.rs/lightning/latest/lightning/ln/peer_handler/struct.PeerManager.html
-    let peer_manager = Arc::new(PeerManager::new(
+    let channel_message_handler = MsgHandler::new(
+        pubkey,
+        pubkey_connected,
+        pubkey_disconnected,
+        disconnected_flag,
+        msg_events,
+    );
+    let routing_message_handler = channel_message_handler;
+    let onion_handler = IgnoringMessageHandler {};
+    let custom_handler = IgnoringMessageHandler {};
+    let message_handler = MessageHandler {
+        channel_message_handler,
+        routing_message_handler,
+        onion_message_handler: onion_handler,
+        custom_message_handler: custom_handler,
+    };
+
+    let keys_manager = KeysManager::new(&private_seed, 0, 0);
+
+    let pm = SimpleRefPeerManager::new(
         message_handler,
-        current_time,
-        rand::random::<u32>(), // Random seed
-        logger.clone(),
-        node_signer,
-    ));
+        current_timestamp,
+        &initial_random_data,
+        &logger,
+        &keys_manager,
+    );
 
     match TcpStream::connect(addr.clone()).await {
-        Ok(mut stream) => {
+        Ok(_stream) => {
             println!("Successfully connected to {}", addr);
         }
         Err(e) => {
             println!("Failed to connect to {}: {}", addr, e);
         }
     }
->>>>>>> ltcp
 }
